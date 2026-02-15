@@ -437,7 +437,7 @@ function pgFleet(){
 }
 
 function ftblR(fl,pg){
-  const s=pg*FPP,sl=fl.slice(s,s+FPP);
+  const s=pg*FPP,rows=fl.slice(s,s+FPP);
   setTimeout(()=>{const i=document.getElementById('fp-info');if(i)i.textContent=`${s+1}–${Math.min(s+FPP,fl.length)} of ${fl.length}`},0);
   return`<table class="w-full text-[12px]"><thead><tr class="bg-gray-50/80 text-[10px] text-gray-500 uppercase tracking-wider">
     <th class="px-4 py-2.5 text-left font-semibold">Fleet ID</th>
@@ -449,7 +449,7 @@ function ftblR(fl,pg){
     <th class="px-3 py-2.5 text-center font-semibold">Status</th>
     <th class="px-3 py-2.5 text-center font-semibold">Trend</th>
     <th class="px-3 py-2.5 text-right font-semibold">Active Days</th>
-  </tr></thead><tbody>${sl.map(f=>`<tr class="border-t border-gray-100 ${f.trend==='worsening'&&f.tier==='core'?'bg-red-50/40':''}">
+  </tr></thead><tbody>${rows.map(f=>`<tr class="border-t border-gray-100 ${f.trend==='worsening'&&f.tier==='core'?'bg-red-50/40':''}">
     <td class="px-4 py-2 mn font-semibold text-hg">${f.fleet_id}</td>
     <td class="px-3 py-2 text-gray-600">${f.category}</td>
     <td class="px-3 py-2 text-right mn">${fmt(f.total_fuel)} L</td>
