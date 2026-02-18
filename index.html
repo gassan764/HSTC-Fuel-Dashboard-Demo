@@ -161,6 +161,7 @@ function K(icon,title,val,sub,accent){return`<div class="kpi bg-white border bor
 function CB(id,h){return`<div style="height:${h||300}px"><canvas id="${id}"></canvas></div>`}
 
 // Range visual: a thin bar showing where the median sits within the benchmark range
+
 function rangeVis(med,lo,hi){
   if(!med||!lo||!hi)return'<span class="text-gray-300">—</span>';
   const maxV=Math.max(med*1.2,hi*1.2);
@@ -171,13 +172,47 @@ function rangeVis(med,lo,hi){
     <div class="rng-dot" style="left:${medP}%;background:${c}"></div></div>`;
 }
 
+function buildDecisionPlan(recs,fl,tf,hf,yf){
+  const atRisk=(D.categories||[])
+    .filter(c=>c.tier==='core'&&c.median_cons&&c.bench_high&&c.median_cons>c.bench_high)
+    .map(c=>{
+      const excess=(c.median_cons-c.bench_high)/c.median_cons;
+      const recover=Math.max(0,Math.min(0.2,excess*0.6));
+      return{...c,potential:Math.round(c.fuel*recover),gap:(c.median_cons-c.bench_high).toFixed(1)};
+    })
+    .sort((a,b)=>b.potential-a.potential);
+
+  const weekendFuel=D.dow.filter(d=>d.dow>=5).reduce((s,d)=>s+d.fuel,0);
+  const worsening=fl.filter(f=>f.trend==='worsening'&&f.tier==='core');
+  const weakestData=(D.categories||[])
+    .filter(c=>c.tier==='core')
+    .sort((a,b)=>(a.odo_coverage||0)-(b.odo_coverage||0))[0];
+
+  const topRisk=atRisk[0];
+  const locLeader=hf>=yf?'Haima':'Yibal';
+  const locShare=((Math.max(hf,yf)/(tf||1))*100).toFixed(0);
+
+  return {
+    potentialSavings:atRisk.slice(0,3).reduce((s,c)=>s+c.potential,0),
+    topRisk,
+    weekendFuel,
+    worseningCount:worsening.length,
+    weakestData,
+    focusUnits:worsening.slice(0,5).map(f=>f.fleet_id),
+    locLeader,
+    locShare
+  };
+}
+
 // ========== PAGE 1: EXECUTIVE ==========
 function pgExec(){
   const recs=fRec(D.explorer);
+  const fl=fFleet(D.fleet);
   const tf=recs.reduce((s,r)=>s+(r[5]||0),0);
   const hf=recs.filter(r=>r[9]==='Haima').reduce((s,r)=>s+(r[5]||0),0);
   const yf=recs.filter(r=>r[9]==='Yibal').reduce((s,r)=>s+(r[5]||0),0);
   const uf=new Set(recs.map(r=>r[3]).filter(f=>f&&f!=='NA')).size;
+  const plan=buildDecisionPlan(recs,fl,tf,hf,yf);
   return`
   <div class="mb-6">
     <h1 class="text-2xl font-bold text-gray-800 tracking-tight">Fleet Fuel Overview</h1>
@@ -190,6 +225,36 @@ function pgExec(){
     ${K('🚛','Fleet Size',fmt(uf)+' units','Active vehicles & equipment')}
     ${K('🏜️','Haima',(hf/(tf||1)*100).toFixed(0)+'%',fmt(Math.round(hf))+' L','text-hg')}
     ${K('🛢️','Yibal',(yf/(tf||1)*100).toFixed(0)+'%',fmt(Math.round(yf))+' L','text-blue-600')}
+  </div>
+
+  <div class="card p-4 mb-6">
+    <div class="flex items-start justify-between gap-3 mb-3">
+      <div>
+        <div class="text-[11px] uppercase tracking-wider text-gray-400">Decision Cockpit · Next 30 Days</div>
+        <div class="text-sm font-semibold text-gray-800 mt-0.5">Focus where you can recover fuel fastest</div>
+      </div>
+      <div class="text-right">
+        <div class="text-[10px] text-gray-400 uppercase tracking-wider">Recoverable (est.)</div>
+        <div class="text-lg font-bold mn text-hg">${fmt(plan.potentialSavings)} L</div>
+      </div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 text-[12px]">
+      <div class="bg-red-50 border border-red-100 rounded-lg p-3">
+        <div class="font-semibold text-red-800 mb-1">1) Efficiency Gap Priority</div>
+        <div class="text-gray-700">${plan.topRisk?plan.topRisk.category+' is above benchmark by '+plan.topRisk.gap+' '+plan.topRisk.unit+'.':''}</div>
+        <div class="text-[11px] text-gray-500 mt-1">Action: review top 10 consuming units in this category and enforce idle-time controls.</div>
+      </div>
+      <div class="bg-amber-50 border border-amber-100 rounded-lg p-3">
+        <div class="font-semibold text-amber-800 mb-1">2) Worsening Units</div>
+        <div class="text-gray-700">${plan.worseningCount} core units are trending worse.</div>
+        <div class="text-[11px] text-gray-500 mt-1">Action: prioritize PM checks for ${plan.focusUnits.length?plan.focusUnits.join(', '):'top flagged units'}.</div>
+      </div>
+      <div class="bg-blue-50 border border-blue-100 rounded-lg p-3">
+        <div class="font-semibold text-blue-800 mb-1">3) Operational & Data Control</div>
+        <div class="text-gray-700">${plan.locLeader} carries ${plan.locShare}% of fuel load. Weekend fueling is ${fmt(plan.weekendFuel)} L.</div>
+        <div class="text-[11px] text-gray-500 mt-1">Action: verify weekend demand approvals; improve ${plan.weakestData?plan.weakestData.category:'low-coverage categories'} odometer coverage first.</div>
+      </div>
+    </div>
   </div>
 
   ${D.alerts.length?`<div class="mb-6">${D.alerts.map(a=>`<div class="al-${a.severity[0]} rounded-xl p-3.5 mb-2.5">
@@ -437,7 +502,7 @@ function pgFleet(){
 }
 
 function ftblR(fl,pg){
-  const s=pg*FPP,sl=fl.slice(s,s+FPP);
+  const s=pg*FPP,rows=fl.slice(s,s+FPP);
   setTimeout(()=>{const i=document.getElementById('fp-info');if(i)i.textContent=`${s+1}–${Math.min(s+FPP,fl.length)} of ${fl.length}`},0);
   return`<table class="w-full text-[12px]"><thead><tr class="bg-gray-50/80 text-[10px] text-gray-500 uppercase tracking-wider">
     <th class="px-4 py-2.5 text-left font-semibold">Fleet ID</th>
@@ -449,7 +514,7 @@ function ftblR(fl,pg){
     <th class="px-3 py-2.5 text-center font-semibold">Status</th>
     <th class="px-3 py-2.5 text-center font-semibold">Trend</th>
     <th class="px-3 py-2.5 text-right font-semibold">Active Days</th>
-  </tr></thead><tbody>${sl.map(f=>`<tr class="border-t border-gray-100 ${f.trend==='worsening'&&f.tier==='core'?'bg-red-50/40':''}">
+  </tr></thead><tbody>${rows.map(f=>`<tr class="border-t border-gray-100 ${f.trend==='worsening'&&f.tier==='core'?'bg-red-50/40':''}">
     <td class="px-4 py-2 mn font-semibold text-hg">${f.fleet_id}</td>
     <td class="px-3 py-2 text-gray-600">${f.category}</td>
     <td class="px-3 py-2 text-right mn">${fmt(f.total_fuel)} L</td>
